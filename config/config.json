@@ -1,0 +1,19 @@
+{
+  "capture": {
+    "target_fps": 10,
+    "delta_threshold": 0.02,
+    "macro_resolution": [640, 360]
+  },
+  "security": {
+    "mask_taskbar": true,
+    "redact_regions": []
+  },
+  "actuation": {
+    "safe_mode": true,
+    "action_delay_ms": 50
+  },
+  "protocol": {
+    "port": 8765,
+    "host": "127.0.0.1"
+  }
+}
