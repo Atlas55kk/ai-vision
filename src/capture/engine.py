@@ -4,8 +4,12 @@ Provides ultra-low-overhead, hardware-efficient screen capture on Windows
 with pre-allocated memory buffers and real-time RAM/latency profiling.
 """
 
-import time
 import os
+import time
+import threading
+
+# Thread-local storage for mss instances
+_THREAD_LOCAL = threading.local()
 import psutil
 import ctypes
 import numpy as np
@@ -35,10 +39,11 @@ def ensure_interactive_desktop():
         import win32con
         if _GLOBAL_HWINSTA is None:
             _GLOBAL_HWINSTA = win32service.OpenWindowStation("winsta0", False, win32con.MAXIMUM_ALLOWED)
-            _GLOBAL_HWINSTA.SetProcessWindowStation()
+        _GLOBAL_HWINSTA.SetProcessWindowStation()
+        
         if _GLOBAL_HDESK is None:
             _GLOBAL_HDESK = win32service.OpenDesktop("default", 0, False, win32con.MAXIMUM_ALLOWED)
-            _GLOBAL_HDESK.SetThreadDesktop()
+        _GLOBAL_HDESK.SetThreadDesktop()
     except Exception:
         pass
 
@@ -104,7 +109,6 @@ class ScreenCaptureEngine:
     def _init_backend(self):
         """Initializes the fastest available capture backend."""
         if HAS_MSS:
-            self.mss_instance = mss.mss()
             self.backend_name = "mss (DirectX/Win32 Ctypes Hook)"
         elif HAS_WIN32:
             self.backend_name = "pywin32 (Native GDI Device Context)"
@@ -122,13 +126,17 @@ class ScreenCaptureEngine:
         Returns:
             np.ndarray: Read-only view of the RGB frame array of shape (height, width, 3).
         """
+        ensure_interactive_desktop()
         start = time.perf_counter()
         
-        if self.mss_instance is not None:
-            # High-speed mss capture
-            monitors = self.mss_instance.monitors
+        if HAS_MSS:
+            # High-speed thread-local mss capture
+            if not hasattr(_THREAD_LOCAL, "sct") or _THREAD_LOCAL.sct is None:
+                _THREAD_LOCAL.sct = mss.MSS()
+            sct = _THREAD_LOCAL.sct
+            monitors = sct.monitors
             mon = monitors[self.monitor_index] if self.monitor_index < len(monitors) else monitors[0]
-            sct_img = self.mss_instance.grab(mon)
+            sct_img = sct.grab(mon)
             # Fast in-place copy from BGRA to RGB into pre-allocated buffer
             raw = np.frombuffer(sct_img.raw, dtype=np.uint8).reshape((sct_img.height, sct_img.width, 4))
             np.copyto(self._buffer, raw[:, :, :3][:, :, ::-1])  # BGRA -> RGB
